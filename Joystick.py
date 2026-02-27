@@ -1,28 +1,19 @@
 from machine import ADC, Pin
 from time import sleep_ms
-from sys import platform
-from micropython import const
+from micropython import const,native
+from button import Button
 
 class Joystick:
     MaxRaw = const(65535)
-    def __init__(self, PinX, PinY, PinButton=None, *, CalValues=10):
-        self._jx = ADC(Pin(PinX))
-        self._jy = ADC(Pin(PinY))
-
-        if platform == "esp32":
-            self._jx.width(ADC.WIDTH_12BIT)
-            self._jy.width(ADC.WIDTH_12BIT)
-            self._jx.atten(ADC.ATTN_11DB)
-            self._jy.atten(ADC.ATTN_11DB)
+    def __init__(self, pin_x, pin_y, pin_button=-1, *, cal_values=10):
+        self._jx = ADC(Pin(pin_x))
+        self._jy = ADC(Pin(pin_y))
         
-        if PinButton:
-            self._jb = Pin(PinButton, Pin.IN, Pin.PULL_UP)
-        else:
-            self._jb = None
+        self._jb = Button(pin_button)
 
         # Initial calibration
-        if CalValues > 0:
-            self._x_center, self._y_center = self.calibrate_center(CalValues)
+        if cal_values > 0:
+            self._x_center, self._y_center = self.calibrate_center(cal_values)
 
     def calibrate_center(self, num_samples=10, delay_ms=1):
         """
@@ -45,7 +36,7 @@ class Joystick:
         center_y = total_y // num_samples
         return center_x, center_y
     
-    @micropython.native
+    @native
     def _scale_value(self, reading, center):
         """Scales the raw ADC value to a range of -100 to 100."""
         delta = reading - center
@@ -57,38 +48,46 @@ class Joystick:
             return (delta * 100) // center
         
     @property
-    @micropython.native
+    @native
     def x(self):
         """Return x-axis value from -100 to 100."""
         return self._scale_value(self._jx.read_u16(), self._x_center)
 
     @property
-    @micropython.native
+    @native
     def y(self):
         """Return y-axis value from -100 to 100."""
         return self._scale_value(self._jy.read_u16(), self._y_center)
+    
+    @property
+    def position(self):
+        """Returns the position as a tuple, equivalent to `(self.x,self.y)`"""
+        return (self.x,self.y)
 
     @property
-    @micropython.native
-    def b(self):
-        """Return button state, True if pressed, False otherwise."""
-        if self._jb:
-            return not self._jb.value()
-        else:
-            return None
-
+    def button(self):
+        """Return the `Button` object, if there is one."""
+        return self._jb
+    
 if __name__ == "__main__":
-    J = Joystick(1, 2, 3, CalValues=100)
+    J = Joystick(1, 2, 3, cal_values=100)
     import time
     n = 1000
     t0 = time.ticks_us()
     for _ in range(n):
         J.x
         J.y
-        J.b
+        J.button.is_pressed()
+        J.button.was_pressed()
+        J.button.was_released()
+        J.button.hold_time
+        J.button.multi_click_count
+        J.button.multi_click_final
     t1 = time.ticks_us()
     dt = time.ticks_diff(t1, t0)
     print(f'Getting Samples at {n/dt*1e3:2.2f} kHz')
     while True:
-        print("X: {}, Y: {}, Button: {}".format(J.x, J.y, J.b))
+        print("X: {}, Y: {}, Button: {}".format(J.x, J.y, J.button.is_pressed()))
         time.sleep_ms(250)  # Sleep for 250 milliseconds
+
+

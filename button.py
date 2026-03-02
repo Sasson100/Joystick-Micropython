@@ -10,13 +10,65 @@ if TYPE_CHECKING:
     from typing import Callable
 
 class Button:
+    # Multi-click dispatcher
+    _dispatchers = {}  # {timer_id: {"timer": Timer, "list": [], "started": bool}}
+    _dispatch_list:list[Button] = []
+    _dispatch_timer = None
+    _dispatcher_started = False
+    _dispatch_timer_id = 0
+
+    @classmethod
+    def _start_dispatcher(cls):
+        if cls._dispatcher_started:
+            return
+        
+        cls._dispatch_timer = Timer(cls._dispatch_timer_id)
+        cls._dispatch_timer.init(
+            period=10,
+            mode=Timer.PERIODIC,
+            callback=cls._dispatch_handler
+        )
+
+        cls._dispatcher_started = True
+    
+    @classmethod
+    def _dispatch_handler(cls,_):
+        now = time.ticks_ms()
+
+        for btn in cls._dispatch_list:
+            if time.ticks_diff(now,btn._multi_click_deadline) >= 0:
+                btn._finalize_multi_click()
+                cls._dispatch_list.remove(btn)
+        
+        if not cls._dispatch_list:
+            cls._dispatch_timer.deinit()
+            cls._dispatcher_started = False
+    
+    @classmethod
+    def _set_dispatch_timer_id(cls, timer_id: int):
+        """
+        Change the timer ID used by all Button instances.
+        This affects any past, current, or future buttons.
+        """
+        cls._dispatch_timer_id = timer_id
+
+        # If the dispatcher is already running, restart it with the new ID
+        if cls._dispatcher_started:
+            cls._dispatch_timer.deinit()
+            cls._dispatcher_started = False
+            cls._start_dispatcher()
+
+
+    # Instance specific
     def __init__(
         self,
         pin_id: int,
+        *,
         debounce_ms = 30,
         pull: str = "up",
-        multi_click_timeout: int = 200,
-        custom_callback: Callable[[bool],None] | None = None
+        multi_click_timeout: int = 400,
+        custom_callback: Callable[[bool],None] | None = None,
+        timer_id: int|None = None
         ):
         """
         Initialize a debounced GPIO button.
@@ -41,6 +93,9 @@ class Button:
         custom_callback : Callable[[bool], None] or None, optional
             Function called after each button state change. Receives a single 
             boolean argument indicating the new button state. Default is None.
+        timer_id : int | None, optional
+            Timer id for the multi-click detection's dispatcher, only matters
+            if you use the `Timer` class. Default is timer 0.
 
         Raises
         ------
@@ -55,8 +110,10 @@ class Button:
         restrictions. See: https://docs.micropython.org/en/latest/reference/isr_rules.html
         - All timing parameters (debounce, multi-click) are in milliseconds.
         """
-        
         now = time.ticks_ms()
+
+        if timer_id is not None:
+            Button._set_dispatch_timer_id(timer_id)
 
         # Setting up the pin
         pull = pull.lower()
@@ -87,8 +144,8 @@ class Button:
         self._pressed_event = self._released_event = False
 
         self._multi_click_timeout = multi_click_timeout
+        self._multi_click_deadline = time.ticks_add(now,multi_click_timeout)
         self._multi_click_final = self._multi_click_count = 0
-        self._multi_click_timer = Timer(-1)
 
         micropython.alloc_emergency_exception_buf(100)
     
@@ -129,28 +186,26 @@ class Button:
             self._pressed_event = True
             self._last_press = now
 
-            self._multi_click_timer.deinit()
+            if self in Button._dispatch_list:
+                Button._dispatch_list.remove(self)
             self._multi_click_count += 1
         else:
             self._released_event = True
             self._last_release = now
-            self._multi_click_timer.init(mode = Timer.ONE_SHOT, period=self._multi_click_timeout, callback=self._multi_click_timer_func)
+            self._multi_click_deadline = time.ticks_add(now, self._multi_click_timeout)
+
+            if self not in Button._dispatch_list:
+                Button._dispatch_list.append(self)
+
+            Button._start_dispatcher()
 
         if self._custom_callback:
             self._custom_callback(new_state)
 
-    def _multi_click_timer_func(self,_: Timer):
-        """
-        `_multi_click_timer`'s callback function.
-
-        Parameters
-        ----------
-        _ : Timer
-            Throwaway parameter required by `Timer.init`, equal to the timer object.
-        """
+    def _finalize_multi_click(self):
         self._multi_click_final = self._multi_click_count
         self._multi_click_count = 0
-
+    
     # Public API
     def is_pressed(self) -> bool:
         """
@@ -251,3 +306,19 @@ class Button:
         count = self._multi_click_final
         self._multi_click_final = 0
         return count
+
+if __name__ == "__main__":
+    button = Button(23)
+    import time
+    n = 1000
+    t0 = time.ticks_us()
+    for _ in range(n):
+        button.is_pressed()
+        button.was_pressed()
+        button.was_released()
+        button.hold_time
+        button.multi_click_count
+        button.multi_click_final
+    t1 = time.ticks_us()
+    dt = time.ticks_diff(t1, t0)
+    print(f'Getting Samples at {n/dt*1e3:2.2f} kHz')

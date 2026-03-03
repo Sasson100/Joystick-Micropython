@@ -1,0 +1,7 @@
+{
+    "urls": [
+        ["lib/button.py","button.py"],
+        ["lib/joystick.py","joystick.py"]
+    ],
+    "version": "1.0"
+}

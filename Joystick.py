@@ -2,10 +2,11 @@ from machine import ADC, Pin
 from time import sleep_ms
 import micropython
 from button import Button
+from math import sqrt, atan2, pi
 
 class Joystick:
     MaxRaw = micropython.const(65535)
-    def __init__(self, pin_x: int, pin_y: int, pin_button: int=-1, *, cal_values: int=10, **kwargs):
+    def __init__(self, pin_x: int, pin_y: int, pin_button: int=-1, *, cal_values: int=10, range:int|float = 1, deadzone:int|float = 0.05, **kwargs):
         """
         Initializes the joystick
 
@@ -19,6 +20,10 @@ class Joystick:
             The pin id for the button's pin (Usually labeled B, SW or SEL), by default -1 (inactive)
         cal_values : int, optional
             The number of samples on the initial calibration of the joystick, by default 10
+        range : int | float, optional
+            The range of values for x and y, by default 1
+        deadzone : int | float, optional
+            The decimal value used for the deadzone calculation, must be between 0 (inclusive) and 1 (exclusive), by default 0.05
         **kwargs
             Arguments for the `Button` class
 
@@ -26,7 +31,18 @@ class Joystick:
         ------
         ValueError
             If `cal_values` isn't bigger than 0
+        ValueError
+            if `range` isn't bigger than 0
+        ValueError
+            if `deadzone` isn't between 0<=x<1
         """
+        if cal_values<=0:
+            raise ValueError("Number of samples for calibration can't be less than 1")
+        if range<=0:
+            raise ValueError("Range of numbers has to be above 0")
+        if not 0<=deadzone<1:
+            raise ValueError("Deadzone must be 0<=x<1")
+
         self._jx = ADC(Pin(pin_x))
         self._jy = ADC(Pin(pin_y))
         
@@ -34,11 +50,10 @@ class Joystick:
 
         self._jb = Button(pin_button, pull = pull,**kwargs)
 
+        self.deadzone = deadzone
+        self.range = range
         # Initial calibration
-        if cal_values > 0:
-            self._x_center, self._y_center = self.calibrate_center(cal_values)
-        else:
-            raise ValueError("Number of samples for calibration can't be less than 1")
+        self._x_center, self._y_center = self.calibrate_center(cal_values)
         
         micropython.alloc_emergency_exception_buf(100)
 
@@ -65,36 +80,91 @@ class Joystick:
     
     @micropython.native
     def _scale_value(self, reading, center):
-        """Scales the raw ADC value to a range of -100 to 100."""
+        """Scales the raw ADC value to the set range."""
+        value = self.range
         delta = reading - center
         if center == 0:
             return 0  # Prevent division by zero
         if delta >= 0:
-            return (delta * 100) // (self.MaxRaw - center)
+            return (delta*value) / (self.MaxRaw - center)
         else:
-            return (delta * 100) // center
-        
+            return (delta*value) / center
+    
+    # Before 
     @property
     @micropython.native
-    def x(self):
-        """Return x-axis value from -100 to 100."""
+    def raw_x(self)->float:
+        """Return x-axis value."""
         return self._scale_value(self._jx.read_u16(), self._x_center)
+    
+    @property
+    @micropython.native
+    def raw_y(self)->float:
+        """Return y-axis value."""
+        return self._scale_value(self._jy.read_u16(), self._y_center)
+
+    def in_deadzone(self)->bool:
+        x = self.raw_x
+        y = self.raw_y
+        return x**2+y**2<(self.range*self.deadzone)**2
 
     @property
     @micropython.native
-    def y(self):
-        """Return y-axis value from -100 to 100."""
-        return self._scale_value(self._jy.read_u16(), self._y_center)
-    
+    def x(self)->float:
+        """Return x-axis value after applying the deadzone."""
+        if self.in_deadzone():
+            return 0
+        else:
+            return self.raw_x
+
     @property
-    def position(self):
+    @micropython.native
+    def y(self)->float:
+        """Return y-axis value after applying the deadzone."""
+        if self.in_deadzone():
+            return 0
+        else:
+            return self.raw_y
+
+    @property
+    def position(self)->tuple[float,float]:
         """Returns the position as a tuple, equivalent to `(self.x,self.y)`"""
         return (self.x,self.y)
 
     @property
-    def button(self):
+    def button(self)->Button:
         """Return the `Button` object, if there is one."""
         return self._jb
+    
+    @property
+    @micropython.native
+    def magnitude(self)->float:
+        """Returns the joystick's magnitude"""
+        x = self.x
+        y = self.y
+        return sqrt(x**2+y**2)
+    
+    @property
+    @micropython.native
+    def angle_radians(self)->float:
+        """Returns the joystick's angle in radians"""
+        x = self.x
+        y = self.y
+        return atan2(y,x)
+    
+    @property
+    def angle(self)->float:
+        """Returns the joystick's angle in degrees"""
+        return self.angle_radians*180/pi
+    
+    @property
+    def direction(self)->str:
+        """Returns the cardinal direction of the joystick, returns "neutral" if within the deadzone"""
+        if self.in_deadzone():
+            return "neutral"
+        directions = ["right","up","left","down"]
+        return directions[round(self.angle_radians*2/pi)]
+    
     
 if __name__ == "__main__":
     J = Joystick(27, 14, 12, cal_values=100)

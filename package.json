@@ -1,7 +1,6 @@
 {
     "urls": [
-        ["lib/button.py","button.py"],
-        ["lib/joystick.py","joystick.py"]
-    ],
-    "version": "1.0"
+        ["button.py","button.py"],
+        ["joystick.py","joystick.py"]
+    ]
 }

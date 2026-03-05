@@ -1,6 +1,6 @@
 {
     "urls": [
-        ["button.py","button.py"],
         ["joystick.py","joystick.py"]
-    ]
+    ],
+    "deps": ["github:Sasson100/Button-Micropython","main"]
 }

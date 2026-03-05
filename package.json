@@ -2,5 +2,5 @@
     "urls": [
         ["joystick.py","joystick.py"]
     ],
-    "deps": ["github:Sasson100/Button-Micropython","main"]
+    "deps": [["github:Sasson100/Button-Micropython","main"]]
 }

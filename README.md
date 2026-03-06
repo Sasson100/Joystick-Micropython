@@ -14,7 +14,7 @@ This repository contains a simple and efficient MicroPython library for interfac
 1. The simple button true/false attribute was replaced with my own irq-based `Button` class, providing software debounce, pressed/released events, hold duration and multi-click detection, here's a [link to it's repository](https://github.com/Sasson100/Button-Micropython/).
 2. Removed the esp32-specific modifications that used deprecated functions.
 3. Fixed the native wrapper, it wasn't even functional previously since he called it using `@micropython.native` without importing the `micropython` module.
-4. Renamed some things to fit python's naming conventions.
+4. Added a bunch of new properties.
 
 ## Usage
 
@@ -30,12 +30,30 @@ joystick = Joystick(1, 2, 3)
 ### Accessing Joystick Values
 
 ```python
-# Get the scaled X and Y values (-100 to 100)
+# Get the scaled X and Y values
 x_value = joystick.x
 y_value = joystick.y
+# or just
+x_value, y_value = joystick.position
+
+# Get the coordinates mapped to a circle
+x_circle, y_circle = joystick.circle_position
+
+# Get magnitude and angle
+mag = joystick.magnitude
+angle = joystick.angle
+angle_radians = joystick.angle_radians
+
+# See if it's in the deadzone
+joystick.in_deadzone()
+
+# Get the cardinal direction, as a point and as a string
+direction = joystick.direction
+direction_point = joystick.direction_point
 
 # Get button state
 button_state = joystick.button.is_pressed()
+# There's a lot more to the button, go to my other repository linked above to read about it.
 ```
 
 ### Example
@@ -50,6 +68,10 @@ while True:
     print(f"X: {joystick.x}, Y: {joystick.y}, Button: {joystick.button.is_pressed()}")
     time.sleep(0.25)
 ```
+
+### Performance Benchmark
+
+On a ESP32 the library can get all values together at aprox 0.15 kHz, which while yes is far worse than the original, in my defense there are a lot more methods which chain back into each other.
 
 ## Notes
 

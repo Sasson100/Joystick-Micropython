@@ -6,7 +6,18 @@ from math import sqrt, atan2, pi
 
 class Joystick:
     MaxRaw = micropython.const(65535)
-    def __init__(self, pin_x: int, pin_y: int, pin_button: int=-1, *, cal_values: int=10, radius:int|float = 1, deadzone:int|float = 0.1, **kwargs):
+    def __init__(self,
+        pin_x: int,
+        pin_y: int,
+        pin_button: int=-1,
+        *,
+        cal_values: int=10,
+        radius:int|float = 1,
+        deadzone:int|float = 0.1,
+        invert_x:bool = False,
+        invert_y:bool = False,
+        **kwargs
+    ):
         """
         Initializes the joystick
 
@@ -18,12 +29,19 @@ class Joystick:
             The pin id for the y coordinate's pin (usually labeled Y or VERT)
         pin_button : int, optional
             The pin id for the button's pin (Usually labeled B, SW or SEL), by default -1 (inactive)
+        
+        Arguments
+        ---------
         cal_values : int, optional
             The number of samples on the initial calibration of the joystick, by default 10
         radius : int | float, optional
             The radius of values for x and y, by default 1
         deadzone : int | float, optional
             The decimal value used for the deadzone calculation, must be between 0 (inclusive) and 1 (exclusive), by default 0.05
+        invert_x : bool
+            A boolean for inverting the x axis, by default False
+        invert_y : bool
+            A boolean for inverting the y axis, by default False
         **kwargs
             Arguments for the `Button` class
 
@@ -56,6 +74,9 @@ class Joystick:
         self._x_center, self._y_center = self.calibrate_center(cal_values)
         self._direction_list = ["right","up","left","down"]
         self._direction_point_list = [(1,0),(0,1),(-1,0),(0,-1)]
+
+        self._invert_x = invert_x
+        self._invert_y = invert_y
         
         micropython.alloc_emergency_exception_buf(100)
 
@@ -78,19 +99,20 @@ class Joystick:
                 sleep_ms(delay_ms)
         center_x = total_x // num_samples
         center_y = total_y // num_samples
+        print("Finished calibration")
         return center_x, center_y
     
     @micropython.native
     def _scale_value(self, reading, center):
         """Scales the raw ADC value to the set radius."""
-        value = self.radius
+        radius = self.radius
         delta = reading - center
         if center == 0:
             return 0  # Prevent division by zero
         if delta >= 0:
-            return (delta*value) / (self.MaxRaw - center)
+            return (delta*radius) / (self.MaxRaw - center)
         else:
-            return (delta*value) / center
+            return (delta*radius) / center
     
     @property
     @micropython.native
@@ -107,13 +129,19 @@ class Joystick:
     @micropython.native
     def raw_x(self)->float:
         """Returns the raw x value, before applying the deadzone."""
-        return self._scale_value(self._jx.read_u16(), self._x_center)
+        value = self._scale_value(self._jx.read_u16(), self._x_center)
+        if self._invert_x:
+            value *= -1
+        return value
     
     @property
     @micropython.native
     def raw_y(self)->float:
         """Returns the raw y value, before applying the deadzone."""
-        return self._scale_value(self._jy.read_u16(), self._y_center)
+        value = self._scale_value(self._jy.read_u16(), self._y_center)
+        if self._invert_y:
+            value *= -1
+        return value
 
     @property
     @micropython.native
